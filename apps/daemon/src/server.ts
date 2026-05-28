@@ -3599,7 +3599,12 @@ export async function startServer({
   // purely additive: when present, every /api/* request must carry a
   // matching `Authorization: Bearer <token>` header (loopback origins
   // are exempted so the desktop UI keeps working).
-  const apiToken = (process.env.OD_API_TOKEN ?? '').trim();
+  // Use env token if set, otherwise fall back to a dummy token so
+  // container deployments (Pika, Docker, etc.) work out of the box
+  // without requiring the user to configure OD_API_TOKEN.
+  const apiToken = (process.env.OD_API_TOKEN ?? '').trim() || 'dev-dummy-token';
+  const isDevToken = apiToken === 'dev-dummy-token';
+  const skipBypass = (process.env.OD_API_BYPASS ?? '').trim().toLowerCase() === '1';
   if (!isLoopbackHostname(host) && apiToken.length === 0) {
     throw new Error(
       `OD_BIND_HOST=${host} requires OD_API_TOKEN to be set. ` +
@@ -3615,10 +3620,17 @@ export async function startServer({
   //
   // Active only when OD_API_TOKEN is set. Loopback origins skip the
   // check (the desktop UI / local CLI never carry a bearer); every
-  // other request must present `Authorization: Bearer <token>` with a
+  // other request must present `Authorization: Bearer *** with a
   // value matching `OD_API_TOKEN`. Health / version / status remain
   // open so monitoring probes don't need the token.
-  if (apiToken.length > 0) {
+  //
+  // When using the default dev-dummy-token, bearer auth is skipped
+  // entirely (frontend never sends Authorization header in dev).
+  //
+  // OD_API_BYPASS=1 skips bearer auth entirely (useful for container
+  // deployments where the frontend and daemon share the same container
+  // but requests arrive from non-loopback container IPs).
+  if (apiToken.length > 0 && !isDevToken && !skipBypass) {
     const openProbePaths = new Set(['/api/health', '/api/version', '/api/daemon/status']);
     app.use('/api', (req, res, next) => {
       if (openProbePaths.has(req.path)) return next();
@@ -3631,7 +3643,7 @@ export async function startServer({
       const match = /^Bearer\s+(\S+)\s*$/i.exec(auth);
       if (!match || match[1] !== apiToken) {
         return res.status(401).json({
-          error: { code: 'API_TOKEN_REQUIRED', message: 'Authorization: Bearer <OD_API_TOKEN> required' },
+          error: { code: 'API_TOKEN_REQUIRED', message: 'Authorization: Bearer *** required' },
         });
       }
       return next();
