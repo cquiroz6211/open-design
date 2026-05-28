@@ -93,7 +93,7 @@ RUN mkdir -p /app/.od && \
 
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=192
-ENV OD_BIND_HOST=127.0.0.1
+ENV OD_BIND_HOST=0.0.0.0
 ENV OD_PORT=7456
 
 EXPOSE 7456
